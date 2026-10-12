@@ -39,6 +39,33 @@ countries <- c(
   "Uganda"
 )
 
+countries <- data.frame(
+  country = countries,
+  iso3 = c(
+    "BFA",
+    "BDI",
+    "CAF",
+    "TCD",
+    "COD",
+    "ERI",
+    "ETH",
+    "GMB",
+    "GNB",
+    "LBR",
+    "MDG",
+    "MWI",
+    "MLI",
+    "MOZ",
+    "NER",
+    "RWA",
+    "SLE",
+    "SOM",
+    "SSD",
+    "SDN",
+    "UGA"
+  )
+)
+
 #extraction des données sur ERA 5
 
 #1 installation de ecmwfr
