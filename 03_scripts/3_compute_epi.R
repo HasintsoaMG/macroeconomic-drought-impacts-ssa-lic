@@ -366,7 +366,7 @@ all.equal(idx_var$ref, epi$epi_index)
 sapply(idx_var[-1], function(x) cor(idx_var$ref, x, method = "spearman", use = "complete.obs"))
 # Écart de rang moyen : de combien de places une observation bouge-t-elle ?
 sapply(idx_var[-1], function(x) mean(abs(rank(idx_var$ref) - rank(x)), na.rm = TRUE))
-#CONTROLE IONTRA_PAYS: révèle une sensibilité masquée par spearman PEARSON SUR LOG
+#CONTROLE INTRA_PAYS: révèle une sensibilité masquée par spearman PEARSON SUR LOG
 epi_cmp <- bind_cols(epi %>% select(`Country Code`, year), idx_var)
 within_cor <- epi_cmp %>%
   group_by(`Country Code`) %>%
@@ -517,8 +517,7 @@ tab_tex <- tab_sens %>%
   column_spec(1, width = "5cm") %>%   # Type de bornes
   column_spec(
     2,
-    width = "6cm",
-    latex_column_spec = ">{\\raggedright\\arraybackslash}p{6cm}"
+    width = "6cm"
   ) %>%   # Description
   row_spec(1:4,
            extra_latex_after = "\\addlinespace[0.6em]")%>%
@@ -536,7 +535,7 @@ con <- file("02_processed_data/annexe_tests_sensibilite_french.tex", encoding = 
 writeLines(tab_tex, con)
 close(con)
 
-file.exists("02_processed_data/annexe_tests_sensibilite.tex")
+file.exists("02_processed_data/annexe_tests_sensibilite_french.tex")
 cat(tab_tex)
 
 #création du document d'aperçu
@@ -563,3 +562,16 @@ writeLines(apercu, con)
 close(con)
 #compiler en pdf
 tinytex::pdflatex("02_processed_data/apercu.tex")
+
+#calculer log_epi etc
+library(fixest)
+
+epi <- epi %>%
+  arrange(`Country Code`, year) %>%
+  group_by(`Country Code`) %>%
+  mutate(log_epi   = log(epi_index),
+         dlog_epi  = log_epi - lag(log_epi),
+         var_epi   = 100 * (epi_index / lag(epi_index) - 1)) %>%   # formule 4.3 avec n = 1
+  ungroup()
+
+
