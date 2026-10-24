@@ -315,7 +315,7 @@ m_loggdp_spi <- feols(
 )
 
 m_ext_spi <- feols(
-  ext_balance ~ spi + spi_l1 |
+  ext_balance ~ spi_l1 + spi |
     `Country Code` + year,
   data = epi
 )
@@ -779,7 +779,7 @@ etable(m_B, m_asym) #NON VALIDE POUR ASYM
 ex <- !((epi$iso == "GNB" & epi$year == 1998) |
           (epi$iso == "MDG" & epi$year %in% c(2002, 2009)))
 sum(!ex)   # doit valoir 3
-m_B <- feols(ext_balance ~ spi + spi_l1 | iso + year, data = epi[ex, ], cluster = ~iso)
+m_B <- feols(ext_balance ~ spi_l1 + spi | iso + year, data = epi[ex, ], cluster = ~iso)
 
 # D. Asymétrie : on sépare la partie sèche (<0) et la partie humide (>0)
 epi <- epi %>%
@@ -796,6 +796,7 @@ etable(m_B, m_asym) #NON VALIDE POUR ASYM
 #graphique régression partielle
 library(fixest); library(ggplot2)
 #######  CROISSANCE
+# ligne de régression
 ry <- resid(feols(gdp_growth ~ spi_l1 | iso + year, data = epi))
 rx <- resid(feols(spi       ~ spi_l1 | iso + year, data = epi))
 pl <- data.frame(rx, ry, iso = epi$iso, year = epi$year)
@@ -812,6 +813,27 @@ g1 <- ggplot(pl, aes(rx, ry)) +
        colour = "Pays") +
   theme_minimal()
 g1
+#graphiques des coefficients
+est <- function(m, v, nom) {
+  ct <- coeftable(m)[v, ]
+  data.frame(spec = nom, b = ct["Estimate"],
+             lo = ct["Estimate"] - qt(.975, 7) * ct["Std. Error"],
+             hi = ct["Estimate"] + qt(.975, 7) * ct["Std. Error"])
+}
+
+rob <- rbind(
+  est(m_gdp, "spi", "Principal"),
+  est(m_B,   "spi", "Sans GNB 1998, MDG 2002 et 2009"),
+  est(m_placebo_gdp,  "spi", "Avec placebo (SPI futur)")
+)
+rob$spec <- factor(rob$spec, levels = rev(rob$spec))
+
+g2 <- ggplot(rob, aes(b, spec)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(xmin = lo, xmax = hi)) +
+  labs(x = "Effet d'une unité de SPI sur la croissance (points de %)", y = NULL) +
+  theme_minimal()
+g2
 
 #######  EPI
 ry <- resid(feols(epi_index ~ spi_l1 | iso + year, data = epi))
@@ -826,11 +848,32 @@ g1 <- ggplot(pl, aes(rx, ry)) +
   geom_point(aes(colour = iso), alpha = 0.7, size = 2) +
   geom_smooth(method = "lm", se = FALSE, colour = "black") +
   labs(x = "SPI-12, résiduel (écart à la normale du pays et de l'année)",
-       y = "Indice de performance économique, résiduel (points de %)",
+       y = "Indice de performance économique, résiduel (points de d'indice)",
        colour = "Pays") +
   theme_minimal()
 g1
 
+#graphiques des coefficients
+est <- function(m, v, nom) {
+  ct <- coeftable(m)[v, ]
+  data.frame(spec = nom, b = ct["Estimate"],
+             lo = ct["Estimate"] - qt(.975, 7) * ct["Std. Error"],
+             hi = ct["Estimate"] + qt(.975, 7) * ct["Std. Error"])
+}
+
+rob <- rbind(
+  est(m_epi_index_spi, "spi", "Principal"),
+  est(m_B,   "spi", "Sans GNB 1998, MDG 2002 et 2009"),
+  est(m_placebo_epi,  "spi", "Avec placebo (SPI futur)")
+)
+rob$spec <- factor(rob$spec, levels = rev(rob$spec))
+
+g2 <- ggplot(rob, aes(b, spec)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(xmin = lo, xmax = hi)) +
+  labs(x = "Effet d'une unité de SPI sur la performance économique (points d'indice)", y = NULL) +
+  theme_minimal()
+g2
 #######  EXT BALANCE ET  SPI_L1
 ry <- resid(feols(ext_balance ~ spi | iso + year, data = epi))
 rx <- resid(feols(spi_l1      ~ spi | iso + year, data = epi))
@@ -849,7 +892,27 @@ g1 <- ggplot(pl, aes(rx, ry)) +
        colour = "Pays") +
   theme_minimal()
 g1
+#graphiques des coefficients
+est <- function(m, v, nom) {
+  ct <- coeftable(m)[v, ]
+  data.frame(spec = nom, b = ct["Estimate"],
+             lo = ct["Estimate"] - qt(.975, 7) * ct["Std. Error"],
+             hi = ct["Estimate"] + qt(.975, 7) * ct["Std. Error"])
+}
 
+rob <- rbind(
+  est(m_ext_spi, "spi_l1", "Principal"),
+  est(m_B,   "spi_l1", "Sans GNB 1998, MDG 2002 et 2009"),
+  est(m_placebo_ext,  "spi_l1", "Avec placebo (SPI futur)")
+)
+rob$spec <- factor(rob$spec, levels = rev(rob$spec))
+
+g2 <- ggplot(rob, aes(b, spec)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(xmin = lo, xmax = hi)) +
+  labs(x = "Effet d'une unité de SPI de l'année précédente sur le solde de compte courant (% PIB)", y = NULL) +
+  theme_minimal()
+g2
 
 #ANALYSE CONTREFACTUELLE--------------------------------------------------------------------------
 
@@ -870,7 +933,7 @@ cf <- epi %>%
          perte_hi = ci["hi"] * deficit,
          gdp_cf   = gdp_growth + perte_pp)     # croissance sans sécheresse
 
-# Contrôle : une année sèche coûte b0 * |SPEI|, une année humide 0
+# Contrôle : une année sèche coûte b0 * |SPI|, une année humide 0
 cf %>% filter(year %in% c(1998, 2015)) %>% select(iso, year, spi, gdp_growth, gdp_cf) %>% head()
 
 # Résumé par pays
@@ -914,8 +977,8 @@ scenario <- function(df, seuil, nom) {
            gdp_cf   = gdp_growth + perte_pp)
 }
 
-cf_all <- bind_rows(scenario(epi,  0, "A : sans année sèche (seuil 0)"),
-                    scenario(epi, -1, "B : sans sécheresse modérée à sévère (seuil -1)"))
+cf_all <- bind_rows(scenario(epi,  0, "A : sécheresse (seuil 0)"),
+                    scenario(epi, -1, "B : sécheresse modérée à sévère (seuil -1)"))
 
 # Résumé par pays et par scénario
 resume <- cf_all %>%
@@ -990,7 +1053,7 @@ g_dumb <- ggplot(cum, aes(y = iso)) +
   geom_point(aes(x = A, colour = "A: threshold 0"), size = 4) +
   geom_point(aes(x = B, colour = "B: threshold -1"), size = 4) +
   scale_colour_manual(values = c("A: threshold 0" = "#e4572e", "B: threshold -1" = "#17657d")) +
-  labs(x = "Cumulative lost growth over 1994-2024 (% points)", y = NULL, colour = NULL) +
+  labs(x = "Cumulative growth loss over 1994-2024 (% points)", y = NULL, colour = NULL) +
   theme_minimal(base_size = 12) +
   theme(panel.grid.major.y = element_blank(), legend.position = "top")
 g_dumb
@@ -1112,7 +1175,7 @@ ggsave("04_figures/counterfactual_range_spi.pdf", g_zone, width = 7, height = 4.
 
 
 #####################  EPI
-# QUESTION PRINCIPALE: les pays plus secs que les autres la même année ont-ils moins crû que les autres ?
+# QUESTION PRINCIPALE: la performance des pays plus secs que les autres la même année a-t-elle baissée par rapport aux autres autres ?
 
 #seuil SPI: 0
 
@@ -1128,7 +1191,7 @@ cf <- epi %>%
          perte_hi = ci["hi"] * deficit,
          epi_index_cf   = epi_index + perte_pp)     # epi index sans sécheresse
 
-# Contrôle : une année sèche coûte b0 * |SPEI|, une année humide 0
+# Contrôle : une année sèche coûte b0 * |SPI|, une année humide 0
 cf %>% filter(year %in% c(1998, 2015)) %>% select(iso, year, spi, epi_index, epi_index_cf) %>% head()
 
 # Résumé par pays
@@ -1144,7 +1207,7 @@ ggplot(cf, aes(year)) +
   geom_line(aes(y = epi_index), colour = "black") +
   geom_line(aes(y = epi_index_cf), colour = "tomato", linetype = "dashed") +
   facet_wrap(~ iso, ncol = 2) +
-  labs(x = NULL, y = "Indice de performance économique") +
+  labs(x = NULL, y = "Indice de performance économique(points d'indice)") +
   theme_minimal()
 
 library(dplyr); library(ggplot2) #diagramme
@@ -1152,7 +1215,7 @@ library(dplyr); library(ggplot2) #diagramme
 ggplot(cf, aes(year, perte_pp)) +
   geom_col(fill = "tomato", width = 0.8) +
   facet_wrap(~ iso, ncol = 2) +
-  labs(x = NULL, y = "Gain de performance économique (points d'indice) - SPI") +
+  labs(x = NULL, y = "Perte de performance économique (points d'indice) - seuil SPI 0") +
   theme_minimal()
 
 
@@ -1172,8 +1235,8 @@ scenario <- function(df, seuil, nom) {
            epi_index_cf   = epi_index + perte_pp)
 }
 
-cf_all <- bind_rows(scenario(epi,  0, "A : sans année sèche (seuil 0)"),
-                    scenario(epi, -1, "B : sans sécheresse modérée à sévère (seuil -1)"))
+cf_all <- bind_rows(scenario(epi,  0, "A : sécheresse (seuil 0)"),
+                    scenario(epi, -1, "B : sécheresse modérée à sévère (seuil -1)"))
 
 # Résumé par pays et par scénario
 resume <- cf_all %>%
@@ -1197,7 +1260,7 @@ ggplot(cf_all, aes(year, perte_pp, fill = scenario)) +
   geom_col(position = "identity", alpha = 0.7, width = 0.8) +
   facet_wrap(~ iso, ncol = 2) +
   scale_fill_manual(values = c("tomato", "steelblue")) +
-  labs(x = NULL, y = "Gain de performance économique (points d'indice)", fill = NULL) +
+  labs(x = NULL, y = "Perte de performance économique (points d'indice)", fill = NULL) +
   theme_minimal() + theme(legend.position = "bottom")
 
 
@@ -1224,7 +1287,7 @@ g_heat <- ggplot(hm, aes(year, iso, fill = perte_pp)) +
         plot.caption = element_text(hjust = 0, colour = "grey30"))
 g_heat
 
-#graphique: Haltères (dumbbell) pour les pertes cumulées par pays
+#graphique: Haltères (dumbbell) pour les pertes cumulées dans la période par pays
 library(tidyr)
 
 cum <- resume %>%
@@ -1248,7 +1311,7 @@ g_dumb <- ggplot(cum, aes(y = iso)) +
   geom_point(aes(x = A, colour = "A: threshold 0"), size = 4) +
   geom_point(aes(x = B, colour = "B: threshold -1"), size = 4) +
   scale_colour_manual(values = c("A: threshold 0" = "#e4572e", "B: threshold -1" = "#17657d")) +
-  labs(x = "Cumulative lost economic performance over 1994-2024 (% points)", y = NULL, colour = NULL) +
+  labs(x = "Cumulative economic performance loss over 1994-2024 (% points)", y = NULL, colour = NULL) +
   theme_minimal(base_size = 12) +
   theme(panel.grid.major.y = element_blank(), legend.position = "top")
 g_dumb
@@ -1261,5 +1324,215 @@ m_noyear <- feols(epi_index ~ spi + spi_l1 | iso, data = epi, cluster = ~iso)
 etable(m_epi_index_spi, m_noyear) #noyear non significatif 
 
 # ======> donc modèle fragile pour epi et spi passons à ext balance
+
+#####################  EXTERNAL BALANCE
+# QUESTION PRINCIPALE: les pays qui ont été plus secs en t-1 ont-ils un meilleur solde de compte courant en t ?
+#Quel aurait été le solde de compte courant (en % du PIB) de ce pays en t si l’année t-1 n’avait pas été sèche (SPI au seuil choisi, 0 ou -1) ?
+
+#seuil SPEI: 0
+
+library(dplyr); library(ggplot2)
+
+# PRÉPARATION
+b0 <- unname(coef(m_ext_spi)["spi_l1"])     # -1,008
+ci <- c(lo = -1.369, hi = -0.44)         # IC bootstrap 95 %
+
+cf <- epi %>%
+  mutate(deficit = pmax(-spi_l1, 0),                # SPI_l1 amené à 0 les années sèches
+         gain_pp = -b0 * deficit,                # hausse du solde associée à la sécheresse (>= 0)
+         gain_lo = -ci["hi"] * deficit,          # bornes inversées avec le signe
+         gain_hi = -ci["lo"] * deficit,
+         ext_cf  = ext_balance - gain_pp)        # solde sans sécheresse (plus bas que l'observé)
+
+# CONTRÔLE : année la plus sèche et la plus humide de chaque pays # contrôle de cohérence (sanity check)
+# (sèche : gain = -b0 * |SPI| ; humide : gain = 0, donc ext_cf = ext_balance)
+cf %>%
+  group_by(iso) %>%
+  filter(spi == min(spi_l1) | spi_l1 == max(spi)) %>%
+  select(iso, year, spi_l1, ext_balance, ext_cf, gain_pp) %>%
+  arrange(iso, spi_l1)
+
+# RÉSUMÉ PAR PAYS
+cf %>%
+  group_by(iso) %>%
+  summarise(part_annees_seches    = mean(spi_l1 < 0),
+            gain_moy_annees_seches = mean(gain_pp[spi_l1 < 0]),
+            gain_moy_toutes_annees = mean(gain_pp),
+            lo = mean(gain_lo), hi = mean(gain_hi),
+            .groups = "drop")
+
+# GRAPHIQUE 1 : solde observé vs contrefactuel
+ggplot(cf, aes(year)) +
+  geom_ribbon(aes(ymin = pmin(ext_balance, ext_cf),
+                  ymax = pmax(ext_balance, ext_cf)),
+              fill = "tomato", alpha = 0.4) +
+  geom_line(aes(y = ext_balance, colour = "Observé")) +
+  geom_line(aes(y = ext_cf, colour = "Sans sécheresse (contrefactuel)"),
+            linetype = "dashed") +
+  scale_colour_manual(values = c("Observé" = "black",
+                                 "Sans sécheresse (contrefactuel)" = "tomato")) +
+  facet_wrap(~ iso, ncol = 2) +
+  labs(x = NULL, y = "Solde de compte courant (en % du PIB)", colour = NULL) +
+  theme_minimal() + theme(legend.position = "bottom")
+
+# GRAPHIQUE 2 : gain de solde associé à la sécheresse
+ggplot(cf, aes(year, gain_pp)) +
+  geom_col(fill = "tomato", width = 0.8) +
+  facet_wrap(~ iso, ncol = 2) +
+  labs(x = NULL,
+       y = "Hausse du solde de compte courant (points de % du PIB)- SPI 0",
+       caption = "Écart entre le solde observé et le solde contrefactuel sans sécheresse (SPI ramené à 0).") +
+  theme_minimal()
+
+#SPI seuil 0 et seuil -1 (effet de spi_l1 sur le solde de compte courant)
+library(dplyr); library(ggplot2); library(tidyr)
+
+b0 <- unname(coef(m_ext_spi)["spi_l1"])    # -1,008
+ci <- c(lo = -1.369, hi = -0.44)           # À REMPLACER par l'IC bootstrap de spi_l1 (voir remarque 3)
+
+scenario <- function(df, seuil, nom) {
+  df %>%
+    mutate(scenario = nom,
+           deficit  = pmax(seuil - spi_l1, 0),     # part du SPI(t-1) sous le seuil
+           gain_pp  = -b0 * deficit,               # hausse du solde associée à la sécheresse (>= 0)
+           gain_lo  = -ci["hi"] * deficit,         # bornes inversées avec le signe
+           gain_hi  = -ci["lo"] * deficit,
+           ext_cf   = ext_balance - gain_pp)       # solde sans sécheresse (plus bas que l'observé)
+}
+
+cf_all <- bind_rows(scenario(epi,  0, "A : sécheresse (seuil 0)"),
+                    scenario(epi, -1, "B : sécheresse modérée à sévère (seuil -1)"))
+
+# Résumé par pays et par scénario
+resume <- cf_all %>%
+  group_by(scenario, iso) %>%
+  summarise(annees_touchees = sum(deficit > 0),
+            gain_moy_an     = mean(gain_pp),
+            gain_cumule     = sum(gain_pp),
+            lo = sum(gain_lo), hi = sum(gain_hi),
+            pire_annee      = year[which.max(gain_pp)],
+            pire_gain       = max(gain_pp), .groups = "drop")
+print(resume, n = 20)
+
+# Total sur le panel
+cf_all %>% group_by(scenario) %>%
+  summarise(gain_moy_pays_annee = mean(gain_pp),
+            lo = mean(gain_lo), hi = mean(gain_hi),
+            part_obs_touchees = mean(deficit > 0))
+
+# Graphique
+ggplot(cf_all, aes(year, gain_pp, fill = scenario)) +
+  geom_col(position = "identity", alpha = 0.7, width = 0.8) +
+  facet_wrap(~ iso, ncol = 2) +
+  scale_fill_manual(values = c("tomato", "steelblue")) +
+  labs(x = NULL,
+       y = "Hausse du solde de compte courant (points de % du PIB) - SPI 0",
+       fill = NULL,
+       caption = "Sécheresse de l'année précédente (SPI t-1). Le scénario B (bleu) est contenu dans le scénario A (rouge).") +
+  theme_minimal() + theme(legend.position = "bottom")
+
+
+
+#graphique heatmap : Carte de chaleur pays × année (la plus moderne)
+library(dplyr); library(ggplot2)
+library(dplyr); library(ggplot2)
+
+hm <- cf_all %>%
+  filter(grepl("^A", scenario)) %>%
+  mutate(severe = spi_l1 < -1,
+         iso = factor(iso, levels = rev(sort(unique(iso)))))
+
+g_heat <- ggplot(hm, aes(year, iso, fill = gain_pp)) +
+  geom_tile(colour = "white", linewidth = 0.5) +
+  geom_point(data = filter(hm, severe), shape = 21, size = 2,
+             fill = "white", colour = "grey15", stroke = 0.5) +
+  scale_fill_viridis_c(option = "rocket", direction = -1,
+                       name = "hausse du solde\nde compte courant\n(% PIB)") +
+  scale_x_continuous(breaks = seq(1995, 2025, 5), expand = c(0, 0)) +
+  labs(x = NULL, y = NULL,
+       caption = "● : année avec SPI_l1 < -1 (sécheresse modérée à sévère)") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid = element_blank(),
+        axis.text.y = element_text(face = "bold"),
+        plot.caption = element_text(hjust = 0, colour = "grey30"))
+
+g_heat
+
+#DUMBELL
+
+
+library(dplyr); library(tidyr); library(ggplot2); library(fixest)
+
+# 0. DONNÉES : on garde les lignes où spi_l1 existe (le retard crée un NA la 1re année)
+e <- epi %>% filter(!is.na(spi_l1), !is.na(ext_balance))
+
+# 1. PART DE LA VARIATION DE SPI_L1 COMMUNE À L'ANNÉE
+spi_w  <- e$spi_l1 - ave(e$spi_l1, e$iso)                       # écart à la moyenne du pays
+spi_id <- resid(feols(spi_l1 ~ 1 | iso + year, data = e))       # partie propre au pays
+1 - var(spi_id) / var(spi_w)                                    # part commune à l'année
+
+# Années où plusieurs pays sont secs en même temps (SPI t-1 < -1)
+e %>% group_by(year) %>%
+  summarise(n_pays_sec = sum(spi_l1 < -1), spi_moy = mean(spi_l1)) %>%
+  filter(n_pays_sec >= 3)
+
+# 2. MODÈLES : avec EF année (m_ext_spi) et EF pays seulement
+m_ext_noyear <- feols(ext_balance ~ spi + spi_l1 | iso, data = epi, cluster = ~iso)
+etable(m_ext_spi, m_ext_noyear)
+
+b_av <- unname(coef(m_ext_spi)["spi_l1"])        # avec EF année  (-1,008)
+b_sa <- unname(coef(m_ext_noyear)["spi_l1"])     # sans EF année #non significatif
+
+# 3. GAIN CUMULÉ PAR PAYS, MODÈLE ET SEUIL
+# gain = -b * max(seuil - spi_l1, 0) : hausse du solde associée à la sécheresse (>= 0)
+cumul <- function(b, seuil) {
+  e %>% group_by(iso) %>%
+    summarise(v = sum(-b * pmax(seuil - spi_l1, 0)), .groups = "drop")
+}
+mk <- function(b, avec) {
+  full_join(cumul(b, 0)  %>% rename(A = v),
+            cumul(b, -1) %>% rename(B = v), by = "iso") %>%
+    mutate(avec = avec)
+}
+d <- bind_rows(mk(b_av, TRUE), mk(b_sa, FALSE))
+
+ord <- d %>% filter(avec) %>% arrange(A) %>% pull(iso)          # tri par A (avec EF année)
+d <- d %>%
+  mutate(iso = factor(iso, levels = ord),
+         cA  = ifelse(avec, "Avec EF année, seuil 0",  "Sans EF année, seuil 0"),
+         cB  = ifelse(avec, "Avec EF année, seuil -1", "Sans EF année, seuil -1"))
+
+cols <- c("Avec EF année, seuil 0"   = "#e4572e",
+          "Sans EF année, seuil 0"   = "#f2a07f",
+          "Avec EF année, seuil -1"  = "#17657d",
+          "Sans EF année, seuil -1"  = "#7fb5c5")
+
+# 4. HALTÈRES : modèle avec EF année
+cum <- d %>% filter(avec) %>% select(iso, A, B)
+
+# french
+g_dumb <- ggplot(cum, aes(y = iso)) +
+  geom_segment(aes(x = B, xend = A, yend = iso), colour = "grey75", linewidth = 1.5) +
+  geom_point(aes(x = A, colour = "A : seuil 0"),  size = 4) +
+  geom_point(aes(x = B, colour = "B : seuil -1"), size = 4) +
+  scale_colour_manual(values = c("A : seuil 0" = "#e4572e", "B : seuil -1" = "#17657d")) +
+  labs(x = "Hausse cumulée du solde de compte courant associée à la sécheresse (points de % du PIB)",
+       y = NULL, colour = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank(), legend.position = "top")
+g_dumb
+
+# English
+g_dumb_en <- ggplot(cum, aes(y = iso)) +
+  geom_segment(aes(x = B, xend = A, yend = iso), colour = "grey75", linewidth = 1.5) +
+  geom_point(aes(x = A, colour = "A: threshold 0"),  size = 4) +
+  geom_point(aes(x = B, colour = "B: threshold -1"), size = 4) +
+  scale_colour_manual(values = c("A: threshold 0" = "#e4572e", "B: threshold -1" = "#17657d")) +
+  labs(x = "Cumulative increase in the current account balance associated with drought, 1994-2024 (% of GDP, points)",
+       y = NULL, colour = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank(), legend.position = "top")
+g_dumb_en
+
 
 

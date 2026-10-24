@@ -105,48 +105,7 @@ epi %>%
   summarise(n = n(), spi_moy = mean(spi), spi_sd = sd(spi),
             part_spi_neg = mean(spi < 0))
 
-#graphique régression partielle
-library(fixest); library(ggplot2)
 
-ry <- resid(feols(gdp_growth ~ spei_l1 | iso + year, data = epi))
-rx <- resid(feols(spei       ~ spei_l1 | iso + year, data = epi))
-pl <- data.frame(rx, ry, iso = epi$iso, year = epi$year)
-
-coef(lm(ry ~ rx))["rx"]   # contrôle : doit valoir 1.137
-
-g1 <- ggplot(pl, aes(rx, ry)) +
-  geom_hline(yintercept = 0, colour = "grey80") +
-  geom_vline(xintercept = 0, colour = "grey80") +
-  geom_point(aes(colour = iso), alpha = 0.7, size = 2) +
-  geom_smooth(method = "lm", se = FALSE, colour = "black") +
-  labs(x = "SPEI-12, résiduel (écart à la normale du pays et de l'année)",
-       y = "Croissance du PIB, résiduelle (points de %)",
-       colour = "Pays") +
-  theme_minimal()
-g1
-
-#graphique des coefficients
-est <- function(m, v, nom) {
-  ct <- coeftable(m)[v, ]
-  data.frame(spec = nom, b = ct["Estimate"],
-             lo = ct["Estimate"] - qt(.975, 7) * ct["Std. Error"],
-             hi = ct["Estimate"] + qt(.975, 7) * ct["Std. Error"])
-}
-
-rob <- rbind(
-  est(m_gdp, "spei", "Principal"),
-  est(m_B,   "spei", "Sans GNB 1998, MDG 2002 et 2009"),
-  est(m_spi, "spi",  "SPI à la place du SPEI"),
-  est(m_pl,  "spei", "Avec placebo (SPEI futur)")
-)
-rob$spec <- factor(rob$spec, levels = rev(rob$spec))
-
-g2 <- ggplot(rob, aes(b, spec)) +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
-  geom_pointrange(aes(xmin = lo, xmax = hi)) +
-  labs(x = "Effet d'une unité de SPEI sur la croissance (points de %)", y = NULL) +
-  theme_minimal()
-g2
 
 #MODELE PRINCIPAL SPEI -------------------------------------------------------------------------------------------------------
 library(fixest)
@@ -198,14 +157,14 @@ f <- function(y, data = epi)
         data = data, cluster = ~`Country Code`)
 
 # Croissance : log du score, variable brute, log sans le point au plancher
-etable(f("log_gdp"),
-       f("gdp_growth"),
-       f("log_gdp", filter(epi, gdp_norm > 0.01)))
+etable(f("log_gdp"), #ok
+       f("gdp_growth"), #ok
+       f("log_gdp", filter(epi, gdp_norm > 0.01))) #non significatif
 
 # Solde extérieur : idem
-etable(f("log_ext"),
-       f("ext_balance"),
-       f("log_ext", filter(epi, ext_norm > 0.01)))
+etable(f("log_ext"),#ok
+       f("ext_balance"),#ok
+       f("log_ext", filter(epi, ext_norm > 0.01))) #non significatif
 
 #Modèle principala avec epi_index
 m_all_epi <- feols(
@@ -389,13 +348,6 @@ lapply(list(gdp_brut = b1, log_gdp = b2, ext_brut = b3, log_ext = b4), summary)
 # Erreurs standard classiques des versions brutes, pour comparer
 etable(m_gdp, m_ext)
 
-set.seed(123); dqrng::dqset.seed(123)
-b1 <- boottest(m_lm,  param = "spei",    clustid = "iso", B = 9999, type = "webb")  # gdp_growth
-b2 <- boottest(m_lm2, param = "spei",    clustid = "iso", B = 9999, type = "webb")  # log_gdp
-b3 <- boottest(m_lm3, param = "spei_l1", clustid = "iso", B = 9999, type = "webb")  # ext_balance
-b4 <- boottest(m_lm4, param = "spei_l1", clustid = "iso", B = 9999, type = "webb")  # log_ext
-
-lapply(list(gdp_brut = b1, log_gdp = b2, ext_brut = b3, log_ext = b4), summary)
 
 #TEST DE PLACEBO (seulement pour la croissance dont seule la relation est robuste et a survécu au bootstrap)
 library(dplyr); library(fixest)
@@ -477,6 +429,49 @@ etable(m_gdp, m_B, m_spi, m_asym) #NON VALIDE POUR ASYM
 m_sym <- feols(gdp_growth ~ spei + spei_neg + spei_l1 + spei_neg_l1 | iso + year,
                data = epi, cluster = ~iso)
 etable(m_sym) # le modèle linéaire reste la spécification principale, et l’asymétrie est une limite à signaler: le modèle linéaire suppose qu’une unité de SPEI négatif coûte autant qu’une unité de SPEI positif rapporte.
+
+#graphique régression partielle
+library(fixest); library(ggplot2)
+
+ry <- resid(feols(gdp_growth ~ spei_l1 | iso + year, data = epi))
+rx <- resid(feols(spei       ~ spei_l1 | iso + year, data = epi))
+pl <- data.frame(rx, ry, iso = epi$iso, year = epi$year)
+
+coef(lm(ry ~ rx))["rx"]   # contrôle : doit valoir 1.137
+
+g1 <- ggplot(pl, aes(rx, ry)) +
+  geom_hline(yintercept = 0, colour = "grey80") +
+  geom_vline(xintercept = 0, colour = "grey80") +
+  geom_point(aes(colour = iso), alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  labs(x = "SPEI-12, résiduel (écart à la normale du pays et de l'année)",
+       y = "Croissance du PIB, résiduelle (points de %)",
+       colour = "Pays") +
+  theme_minimal()
+g1
+
+#graphique des coefficients
+est <- function(m, v, nom) {
+  ct <- coeftable(m)[v, ]
+  data.frame(spec = nom, b = ct["Estimate"],
+             lo = ct["Estimate"] - qt(.975, 7) * ct["Std. Error"],
+             hi = ct["Estimate"] + qt(.975, 7) * ct["Std. Error"])
+}
+
+rob <- rbind(
+  est(m_gdp, "spei", "Principal"),
+  est(m_B,   "spei", "Sans GNB 1998, MDG 2002 et 2009"),
+  est(m_spi, "spi",  "SPI à la place du SPEI"),
+  est(m_pl,  "spei", "Avec placebo (SPEI futur)")
+)
+rob$spec <- factor(rob$spec, levels = rev(rob$spec))
+
+g2 <- ggplot(rob, aes(b, spec)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(xmin = lo, xmax = hi)) +
+  labs(x = "Effet d'une unité de SPEI sur la croissance (points de %)", y = NULL) +
+  theme_minimal()
+g2
 
 #ANALYSE CONTREFACTUELLE--------------------------------------------------------------------------
 # QUESTION PRINCIPALE: les pays plus secs que les autres la même année ont-ils moins crû que les autres ?
@@ -612,7 +607,7 @@ g_dumb <- ggplot(cum, aes(y = iso)) +
   geom_point(aes(x = A, colour = "A: threshold 0"), size = 4) +
   geom_point(aes(x = B, colour = "B: threshold -1"), size = 4) +
   scale_colour_manual(values = c("A: threshold 0" = "#e4572e", "B: threshold -1" = "#17657d")) +
-  labs(x = "Cumulative lost growth over 1994-2024 (% points)", y = NULL, colour = NULL) +
+  labs(x = "Cumulative growth loss over 1994-2024 (% points)", y = NULL, colour = NULL) +
   theme_minimal(base_size = 12) +
   theme(panel.grid.major.y = element_blank(), legend.position = "top")
 g_dumb
@@ -631,7 +626,7 @@ epi %>% group_by(year) %>%
   summarise(n_pays_sec = sum(spei < -1), spei_moy = mean(spei)) %>%
   filter(n_pays_sec >= 3)
 
-#EFFETS fixes pays seulement
+#EFFETS fixes pays seulement => gdp significatif dans les deux modèles
 m_noyear <- feols(gdp_growth ~ spei + spei_l1 | iso, data = epi, cluster = ~iso)
 etable(m_gdp, m_noyear)
 
