@@ -105,7 +105,7 @@ epi %>%
             part_spi_neg = mean(spi < 0))
 
 
-#MODELE PRINCIPAL SPEI -------------------------------------------------------------------------------------------------------
+#MODELE PRINCIPAL SPI -------------------------------------------------------------------------------------------------------
 library(fixest)
 library(dplyr)
 
@@ -145,7 +145,7 @@ etable(
   feols(log_unemp ~ spi + spi_l1 | `Country Code` + year, data = epi, cluster = ~`Country Code`)
 )
 
-#TESTS DE ROBUSTESSE DES EFFETS SIGNIFICATIFS
+#TESTS DE ROBUSTESSE DES EFFETS SIGNIFICATIFS---------------------------------------------------------------------
 
 library(fixest)
 library(dplyr)
@@ -173,7 +173,7 @@ m_all_spiepi <- feols(
 
 summary(m_all_spiepi)
 
-# Effet cumulé (t + t-1)
+# Effet cumulé (t + t-1)*** non significatif
 b <- coef(m_all_spiepi)[c("spi", "spi_l1")]
 
 V <- vcov(m_all_spiepi)[c("spi", "spi_l1"),
@@ -193,8 +193,16 @@ c(
   se = se_cumule,
   t = t_cumule
 )
+p_cumule <- 2 * pnorm(abs(t_cumule), lower.tail = FALSE)
 
-# Première robustesse : sans les 11 observations au plancher
+c(
+  effet = effet_cumule,
+  se = se_cumule,
+  t = t_cumule,
+  p = p_cumule
+)
+
+# Première robustesse : sans les 11 observations au plancher #significatif
 m_sans_spiepi <- feols(
   epi_index ~ spi + spi_l1 | `Country Code` + year,
   data = filter(epi, !quasi_plancher),
@@ -204,7 +212,7 @@ m_sans_spiepi <- feols(
 etable(m_all_spiepi, m_sans_spiepi)
 # => RESULTATS SIGNIFICATIFS SUR INDICE AGREGE
 
-#TEST DE SENSIBILITE (Leave-one-out analysis: effets de levier par pays)
+#TEST DE SENSIBILITE (Leave-one-out analysis: effets de levier par pays)----------------------------------------------------------------------------------------------
 pays <- unique(epi$`Country Code`)
 
 ##leave-one-out analysis: modèle global => coeff sur spi et spi_l1 remarquablement stables, aucun pays ne porte entièrement le résultat
@@ -272,7 +280,7 @@ res <- lapply(pays, function(p){
 bind_rows(res)
 
 
-#TEST DE ROBUSTESSE : wild cluster bootstrap
+#TEST DE ROBUSTESSE : wild cluster bootstrap-------------------------------------------------------------------------------------
 install.packages("fwildclusterboot")
 library(fwildclusterboot)  # 1. CRAN
 
@@ -314,6 +322,12 @@ m_ext_spi <- feols(
 
 m_logext_spi <- feols(
   log_ext ~ spi + spi_l1 |
+    `Country Code` + year,
+  data = epi
+)
+
+m_epi_index_spi <- feols(
+  epi_index ~ spi + spi_l1 |
     `Country Code` + year,
   data = epi
 )
@@ -710,106 +724,159 @@ print(res_placebo)
 # RESULTAT DES TEST DE PLACEBO: Cela signifie que le SPI futur n'explique aucune de tes variables économiques contemporaines
 #=============================================
 
-
+#=============================================================================================================
+#TEST DE ROBUSTESSE SANS EPISODE POLITIQUE ET  ASYMETRIE
 #RESUME DES TESTS DE ROBUSTESSE DE LA CROISSANCE
 library(dplyr); library(fixest); library(fwildclusterboot)
 
 epi$iso    <- epi$`Country Code`
 epi$iso_f  <- factor(epi$iso)
 epi$year_f <- factor(epi$year)
-
+################################### CROISSANCE
 # Modèle principal (croissance)
-m_gdp <- feols(gdp_growth ~ spei + spei_l1 | iso + year, data = epi, cluster = ~iso)
+m_gdp <- feols(gdp_growth ~ spi + spi_l1 | iso + year, data = epi, cluster = ~iso)
 
-# B. Sans les trois épisodes politiques
+# B. Sans les trois épisodes politiques # okok significatif 
 ex <- !((epi$iso == "GNB" & epi$year == 1998) |
           (epi$iso == "MDG" & epi$year %in% c(2002, 2009)))
 sum(!ex)   # doit valoir 3
-m_B <- feols(gdp_growth ~ spei + spei_l1 | iso + year, data = epi[ex, ], cluster = ~iso)
+m_B <- feols(gdp_growth ~ spi + spi_l1 | iso + year, data = epi[ex, ], cluster = ~iso)
 
-# C. SPI à la place du SPEI
+# C. SPI à la place du SPEI OK pas nécessaire
 m_spi <- feols(gdp_growth ~ spi + spi_l1 | iso + year, data = epi, cluster = ~iso)
 
 # D. Asymétrie : on sépare la partie sèche (<0) et la partie humide (>0)
 epi <- epi %>%
-  mutate(spei_neg    = pmin(spei, 0),    spei_pos    = pmax(spei, 0),
-         spei_neg_l1 = pmin(spei_l1, 0), spei_pos_l1 = pmax(spei_l1, 0))
+  mutate(spi_neg    = pmin(spi, 0),    spi_pos    = pmax(spi, 0),
+         spi_neg_l1 = pmin(spi_l1, 0), spi_pos_l1 = pmax(spi_l1, 0))
 
-m_asym <- feols(gdp_growth ~ spei_neg + spei_pos + spei_neg_l1 + spei_pos_l1 | iso + year,
+m_asym <- feols(gdp_growth ~ spi_neg + spi_pos + spi_neg_l1 + spi_pos_l1 | iso + year,
                 data = epi, cluster = ~iso)
 
-etable(m_gdp, m_B, m_spi, m_asym) #NON VALIDE POUR ASYM
+etable(m_gdp, m_B, m_asym) #NON VALIDE POUR ASYM
 
 m_sym <- feols(gdp_growth ~ spei + spei_neg + spei_l1 + spei_neg_l1 | iso + year,
                data = epi, cluster = ~iso)
-etable(m_sym) # le modèle linéaire reste la spécification principale, et l’asymétrie est une limite à signaler: le modèle linéaire suppose qu’une unité de SPEI négatif coûte autant qu’une unité de SPEI positif rapporte.
+etable(m_sym)
+############################################### EPI
+# B. Sans les trois épisodes politiques # okok significatif pour spi et spi_l1
+ex <- !((epi$iso == "GNB" & epi$year == 1998) |
+          (epi$iso == "MDG" & epi$year %in% c(2002, 2009)))
+sum(!ex)   # doit valoir 3
+m_B <- feols(epi_index ~ spi + spi_l1 | iso + year, data = epi[ex, ], cluster = ~iso)
 
+# D. Asymétrie : on sépare la partie sèche (<0) et la partie humide (>0)
+epi <- epi %>%
+  mutate(spi_neg    = pmin(spi, 0),    spi_pos    = pmax(spi, 0),
+         spi_neg_l1 = pmin(spi_l1, 0), spi_pos_l1 = pmax(spi_l1, 0))
+
+m_asym <- feols(epi_index ~ spi_neg + spi_pos + spi_neg_l1 + spi_pos_l1 | iso + year,
+                data = epi, cluster = ~iso)
+
+etable(m_B, m_asym) #NON VALIDE POUR ASYM
+############################################### EXT_BALANCE
+# B. Sans les trois épisodes politiques # okok significatif pour spi et spi_l1
+ex <- !((epi$iso == "GNB" & epi$year == 1998) |
+          (epi$iso == "MDG" & epi$year %in% c(2002, 2009)))
+sum(!ex)   # doit valoir 3
+m_B <- feols(ext_balance ~ spi + spi_l1 | iso + year, data = epi[ex, ], cluster = ~iso)
+
+# D. Asymétrie : on sépare la partie sèche (<0) et la partie humide (>0)
+epi <- epi %>%
+  mutate(spi_neg    = pmin(spi, 0),    spi_pos    = pmax(spi, 0),
+         spi_neg_l1 = pmin(spi_l1, 0), spi_pos_l1 = pmax(spi_l1, 0))
+
+m_asym <- feols(ext_balance ~ spi_neg + spi_pos + spi_neg_l1 + spi_pos_l1 | iso + year,
+                data = epi, cluster = ~iso)
+
+etable(m_B, m_asym) #NON VALIDE POUR ASYM
+
+
+#--------------------------------------------- GRAPHIQUES MCO régression spi 
 #graphique régression partielle
 library(fixest); library(ggplot2)
-
-ry <- resid(feols(gdp_growth ~ spei_l1 | iso + year, data = epi))
-rx <- resid(feols(spei       ~ spei_l1 | iso + year, data = epi))
+#######  CROISSANCE
+ry <- resid(feols(gdp_growth ~ spi_l1 | iso + year, data = epi))
+rx <- resid(feols(spi       ~ spi_l1 | iso + year, data = epi))
 pl <- data.frame(rx, ry, iso = epi$iso, year = epi$year)
 
-coef(lm(ry ~ rx))["rx"]   # contrôle : doit valoir 1.137
+coef(lm(ry ~ rx))["rx"]  #1.000955 
 
 g1 <- ggplot(pl, aes(rx, ry)) +
   geom_hline(yintercept = 0, colour = "grey80") +
   geom_vline(xintercept = 0, colour = "grey80") +
   geom_point(aes(colour = iso), alpha = 0.7, size = 2) +
   geom_smooth(method = "lm", se = FALSE, colour = "black") +
-  labs(x = "SPEI-12, résiduel (écart à la normale du pays et de l'année)",
+  labs(x = "SPI-12, résiduel (écart à la normale du pays et de l'année)",
        y = "Croissance du PIB, résiduelle (points de %)",
        colour = "Pays") +
   theme_minimal()
 g1
 
-#graphique des coefficients
-est <- function(m, v, nom) {
-  ct <- coeftable(m)[v, ]
-  data.frame(spec = nom, b = ct["Estimate"],
-             lo = ct["Estimate"] - qt(.975, 7) * ct["Std. Error"],
-             hi = ct["Estimate"] + qt(.975, 7) * ct["Std. Error"])
-}
+#######  EPI
+ry <- resid(feols(epi_index ~ spi_l1 | iso + year, data = epi))
+rx <- resid(feols(spi       ~ spi_l1 | iso + year, data = epi))
+pl <- data.frame(rx, ry, iso = epi$iso, year = epi$year)
 
-rob <- rbind(
-  est(m_gdp, "spei", "Principal"),
-  est(m_B,   "spei", "Sans GNB 1998, MDG 2002 et 2009"),
-  est(m_spi, "spi",  "SPI à la place du SPEI"),
-  est(m_pl,  "spei", "Avec placebo (SPEI futur)")
-)
-rob$spec <- factor(rob$spec, levels = rev(rob$spec))
+coef(lm(ry ~ rx))["rx"]  # 0.014274
 
-g2 <- ggplot(rob, aes(b, spec)) +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
-  geom_pointrange(aes(xmin = lo, xmax = hi)) +
-  labs(x = "Effet d'une unité de SPEI sur la croissance (points de %)", y = NULL) +
+g1 <- ggplot(pl, aes(rx, ry)) +
+  geom_hline(yintercept = 0, colour = "grey80") +
+  geom_vline(xintercept = 0, colour = "grey80") +
+  geom_point(aes(colour = iso), alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  labs(x = "SPI-12, résiduel (écart à la normale du pays et de l'année)",
+       y = "Indice de performance économique, résiduel (points de %)",
+       colour = "Pays") +
   theme_minimal()
-g2
+g1
+
+#######  EXT BALANCE ET  SPI_L1
+ry <- resid(feols(ext_balance ~ spi | iso + year, data = epi))
+rx <- resid(feols(spi_l1      ~ spi | iso + year, data = epi))
+
+pl <- data.frame(rx, ry, iso = epi$iso, year = epi$year)
+
+coef(lm(ry ~ rx))["rx"] # - 1,0079
+
+g1 <- ggplot(pl, aes(rx, ry)) +
+  geom_hline(yintercept = 0, colour = "grey80") +
+  geom_vline(xintercept = 0, colour = "grey80") +
+  geom_point(aes(colour = iso), alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  labs(x = "SPI-12 retardé, résiduel (écart à la normale du pays et de l'année)",
+       y = "Solde de compte  (% PIB), résiduel (points de %)",
+       colour = "Pays") +
+  theme_minimal()
+g1
+
 
 #ANALYSE CONTREFACTUELLE--------------------------------------------------------------------------
+
+#####################  CROISSANCE
 # QUESTION PRINCIPALE: les pays plus secs que les autres la même année ont-ils moins crû que les autres ?
+
 #seuil SPEI: 0
 
-library(dplyr); library(ggplot2)
-
-b0 <- unname(coef(m_gdp)["spei"])      # 1.137
-ci <- c(lo = 0.564, hi = 1.588)        # IC bootstrap 95 % (ligne gdp_brut de ton boottest)
+library(dplyr); library(ggplot2) 
+#PREPARATION
+b0 <- unname(coef(m_gdp)["spi"])      # 1.0009      
+ci <- c(lo = 0.46, hi = 1.452)        # IC bootstrap 95 % (ligne gdp_brut de ton boottest)
 
 cf <- epi %>%
-  mutate(deficit  = pmax(-spei, 0),            # SPEI amené à 0 les années sèches
+  mutate(deficit  = pmax(-spi, 0),            # SPI amené à 0 les années sèches
          perte_pp = b0 * deficit,              # points de croissance perdus
          perte_lo = ci["lo"] * deficit,
          perte_hi = ci["hi"] * deficit,
          gdp_cf   = gdp_growth + perte_pp)     # croissance sans sécheresse
 
 # Contrôle : une année sèche coûte b0 * |SPEI|, une année humide 0
-cf %>% filter(year %in% c(1998, 2015)) %>% select(iso, year, spei, gdp_growth, gdp_cf) %>% head()
+cf %>% filter(year %in% c(1998, 2015)) %>% select(iso, year, spi, gdp_growth, gdp_cf) %>% head()
 
 # Résumé par pays
 cf %>% group_by(iso) %>%
-  summarise(part_annees_seches = mean(spei < 0),
-            perte_moy_annees_seches = mean(perte_pp[spei < 0]),
+  summarise(part_annees_seches = mean(spi < 0),
+            perte_moy_annees_seches = mean(perte_pp[spi < 0]),
             perte_moy_toutes_annees = mean(perte_pp),
             lo = mean(perte_lo), hi = mean(perte_hi))
 #graphique
@@ -827,20 +894,20 @@ library(dplyr); library(ggplot2) #diagramme
 ggplot(cf, aes(year, perte_pp)) +
   geom_col(fill = "tomato", width = 0.8) +
   facet_wrap(~ iso, ncol = 2) +
-  labs(x = NULL, y = "Croissance perdue à cause de la sécheresse (points de %)") +
+  labs(x = NULL, y = "Croissance perdue à cause de la sécheresse (points de %) - SPI") +
   theme_minimal()
 
 
 #SPEI seuil -1
 library(dplyr); library(ggplot2); library(tidyr)
 
-b0 <- unname(coef(m_gdp)["spei"])      # 1.137
-ci <- c(lo = 0.564, hi = 1.588)        # IC bootstrap 95 % (bloc gdp_brut)
+b0 <- unname(coef(m_gdp)["spi"])      # 1.0009
+ci <- c(lo = 0.46, hi = 1.452)        # IC bootstrap 95 % (bloc gdp_brut)
 
 scenario <- function(df, seuil, nom) {
   df %>%
     mutate(scenario = nom,
-           deficit  = pmax(seuil - spei, 0),     # part du SPEI sous le seuil
+           deficit  = pmax(seuil - spi, 0),     # part du SPI sous le seuil
            perte_pp = b0 * deficit,
            perte_lo = ci["lo"] * deficit,
            perte_hi = ci["hi"] * deficit,
@@ -875,12 +942,14 @@ ggplot(cf_all, aes(year, perte_pp, fill = scenario)) +
   labs(x = NULL, y = "Croissance perdue (points de %)", fill = NULL) +
   theme_minimal() + theme(legend.position = "bottom")
 
+
+
 #graphique heatmap : Carte de chaleur pays × année (la plus moderne)
 library(dplyr); library(ggplot2)
 
 hm <- cf_all %>%
   filter(grepl("^A", scenario)) %>%
-  mutate(severe = spei < -1,
+  mutate(severe = spi < -1,
          iso = factor(iso, levels = rev(sort(unique(iso)))))
 
 g_heat <- ggplot(hm, aes(year, iso, fill = perte_pp)) +
@@ -890,7 +959,7 @@ g_heat <- ggplot(hm, aes(year, iso, fill = perte_pp)) +
   scale_fill_viridis_c(option = "rocket", direction = -1, name = "Croissance\nperdue\n(points de %)") +
   scale_x_continuous(breaks = seq(1995, 2025, 5), expand = c(0, 0)) +
   labs(x = NULL, y = NULL,
-       caption = "● : année avec SPEI < -1 (sécheresse modérée à sévère)") +
+       caption = "● : année avec SPI < -1 (sécheresse modérée à sévère)") +
   theme_minimal(base_size = 12) +
   theme(panel.grid = element_blank(),
         axis.text.y = element_text(face = "bold"),
@@ -926,25 +995,25 @@ g_dumb <- ggplot(cum, aes(y = iso)) +
   theme(panel.grid.major.y = element_blank(), legend.position = "top")
 g_dumb
 
-#part de SPEI commune
+#part de SPI commune
 library(fixest); library(dplyr)
 
-spei_w  <- epi$spei - ave(epi$spei, epi$iso)                 # écart à la moyenne du pays
-spei_id <- resid(feols(spei ~ 1 | iso + year, data = epi))   # partie propre au pays (hors année commune)
+spi_w  <- epi$spi - ave(epi$spi, epi$iso)                 # écart à la moyenne du pays
+spi_id <- resid(feols(spi ~ 1 | iso + year, data = epi))   # partie propre au pays (hors année commune)
 
-# Part de la variation du SPEI qui est commune à l'année: 26,18%
-1 - var(spei_id) / var(spei_w)
+# Part de la variation du SPI qui est commune à l'année: 27,21%
+1 - var(spi_id) / var(spi_w)
 
-# Années où plusieurs pays sont secs en même temps: 2021
+# Années où plusieurs pays sont secs en même temps:2021 et 2022
 epi %>% group_by(year) %>%
-  summarise(n_pays_sec = sum(spei < -1), spei_moy = mean(spei)) %>%
+  summarise(n_pays_sec = sum(spi < -1), spi_moy = mean(spi)) %>%
   filter(n_pays_sec >= 3)
 
 #EFFETS fixes pays seulement
-m_noyear <- feols(gdp_growth ~ spei + spei_l1 | iso, data = epi, cluster = ~iso)
+m_noyear <- feols(gdp_growth ~ spi + spi_l1 | iso, data = epi, cluster = ~iso)
 etable(m_gdp, m_noyear)
 
-#grapghique comparaison effets années et effets pays seulement sans année****************************
+#graphique comparaison effets années et effets pays seulement sans année****************************
 library(dplyr); library(tidyr); library(ggplot2)
 
 
@@ -989,13 +1058,13 @@ g_zone <- ggplot() +
   labs(x = "Croissance perdue cumulée, 1994-2024 (points de %)", y = NULL, colour = NULL,
        caption = paste0("Zone grisée : plage couverte par les quatre estimations ",
                         "(deux coefficients × deux seuils).\n",
-                        "EF année : effets fixes année. Coefficients : 1,14 (avec) et 0,78 (sans).")) +
+                        "EF année : effets fixes année. Coefficients : 1,001 (avec) et 0,71 (sans).")) +
   theme_minimal(base_size = 12) +
   theme(panel.grid.major.y = element_blank(), legend.position = "top",
         plot.caption = element_text(hjust = 0, colour = "grey30"))
 g_zone
 
-ggsave("figures/contrefactuel_zone.pdf", g_zone, width = 7, height = 4.8)
+ggsave("04_figures/contrefactuel_zone_spi.pdf", g_zone, width = 7, height = 4.8)
 
 #anglais
 g_zone <- ggplot() +
@@ -1026,7 +1095,7 @@ g_zone <- ggplot() +
       "Shaded area indicates the range spanned by the four estimates ",
       "(two coefficients and two drought thresholds).\n",
       "Year FE denotes year fixed effects. Estimated coefficients are ",
-      "1.14 (with year FE) and 0.78 (without year FE)."
+      "1.001 (with year FE) and 0.71 (without year FE)."
     )
   ) +
   theme_minimal(base_size = 12) +
@@ -1038,4 +1107,159 @@ g_zone <- ggplot() +
 
 g_zone
 
-ggsave("figures/counterfactual_range.pdf", g_zone, width = 7, height = 4.8)
+ggsave("04_figures/counterfactual_range_spi.pdf", g_zone, width = 7, height = 4.8)
+
+
+
+#####################  EPI
+# QUESTION PRINCIPALE: les pays plus secs que les autres la même année ont-ils moins crû que les autres ?
+
+#seuil SPI: 0
+
+library(dplyr); library(ggplot2) 
+#PREPARATION
+b0 <- unname(coef(m_epi_index_spi)["spi"])      # 0.014                
+ci <- c(lo = 0.002, hi = 0.029)        # IC bootstrap 95 % (ligne gdp_brut de ton boottest)
+
+cf <- epi %>%
+  mutate(deficit  = pmax(-spi, 0),            # SPI amené à 0 les années sèches
+         perte_pp = b0 * deficit,              # points de croissance perdus
+         perte_lo = ci["lo"] * deficit,
+         perte_hi = ci["hi"] * deficit,
+         epi_index_cf   = epi_index + perte_pp)     # epi index sans sécheresse
+
+# Contrôle : une année sèche coûte b0 * |SPEI|, une année humide 0
+cf %>% filter(year %in% c(1998, 2015)) %>% select(iso, year, spi, epi_index, epi_index_cf) %>% head()
+
+# Résumé par pays
+cf %>% group_by(iso) %>%
+  summarise(part_annees_seches = mean(spi < 0),
+            perte_moy_annees_seches = mean(perte_pp[spi < 0]),
+            perte_moy_toutes_annees = mean(perte_pp),
+            lo = mean(perte_lo), hi = mean(perte_hi))
+#graphique
+#graphe
+ggplot(cf, aes(year)) +
+  geom_ribbon(aes(ymin = epi_index, ymax = epi_index_cf), fill = "tomato", alpha = 0.4) +
+  geom_line(aes(y = epi_index), colour = "black") +
+  geom_line(aes(y = epi_index_cf), colour = "tomato", linetype = "dashed") +
+  facet_wrap(~ iso, ncol = 2) +
+  labs(x = NULL, y = "Indice de performance économique") +
+  theme_minimal()
+
+library(dplyr); library(ggplot2) #diagramme
+
+ggplot(cf, aes(year, perte_pp)) +
+  geom_col(fill = "tomato", width = 0.8) +
+  facet_wrap(~ iso, ncol = 2) +
+  labs(x = NULL, y = "Gain de performance économique (points d'indice) - SPI") +
+  theme_minimal()
+
+
+#SPEI seuil -1
+library(dplyr); library(ggplot2); library(tidyr)
+
+b0 <- unname(coef(m_epi_index_spi)["spi"])      # 0.014                
+ci <- c(lo = 0.002, hi = 0.029)        # IC bootstrap 95 % (bloc gdp_brut)
+
+scenario <- function(df, seuil, nom) {
+  df %>%
+    mutate(scenario = nom,
+           deficit  = pmax(seuil - spi, 0),     # part du SPI sous le seuil
+           perte_pp = b0 * deficit,
+           perte_lo = ci["lo"] * deficit,
+           perte_hi = ci["hi"] * deficit,
+           epi_index_cf   = epi_index + perte_pp)
+}
+
+cf_all <- bind_rows(scenario(epi,  0, "A : sans année sèche (seuil 0)"),
+                    scenario(epi, -1, "B : sans sécheresse modérée à sévère (seuil -1)"))
+
+# Résumé par pays et par scénario
+resume <- cf_all %>%
+  group_by(scenario, iso) %>%
+  summarise(annees_touchees = sum(deficit > 0),
+            perte_moy_an   = mean(perte_pp),
+            perte_cumulee  = sum(perte_pp),
+            lo = sum(perte_lo), hi = sum(perte_hi),
+            pire_annee     = year[which.max(perte_pp)],
+            pire_perte     = max(perte_pp), .groups = "drop")
+print(resume, n = 20)
+
+# Total sur le panel
+cf_all %>% group_by(scenario) %>%
+  summarise(perte_moy_pays_annee = mean(perte_pp),
+            lo = mean(perte_lo), hi = mean(perte_hi),
+            part_obs_touchees = mean(deficit > 0))
+
+#graphique diagramme
+ggplot(cf_all, aes(year, perte_pp, fill = scenario)) +
+  geom_col(position = "identity", alpha = 0.7, width = 0.8) +
+  facet_wrap(~ iso, ncol = 2) +
+  scale_fill_manual(values = c("tomato", "steelblue")) +
+  labs(x = NULL, y = "Gain de performance économique (points d'indice)", fill = NULL) +
+  theme_minimal() + theme(legend.position = "bottom")
+
+
+
+#graphique heatmap : Carte de chaleur pays × année (la plus moderne)
+library(dplyr); library(ggplot2)
+
+hm <- cf_all %>%
+  filter(grepl("^A", scenario)) %>%
+  mutate(severe = spi < -1,
+         iso = factor(iso, levels = rev(sort(unique(iso)))))
+
+g_heat <- ggplot(hm, aes(year, iso, fill = perte_pp)) +
+  geom_tile(colour = "white", linewidth = 0.5) +
+  geom_point(data = filter(hm, severe), shape = 21, size = 2,
+             fill = "white", colour = "grey15", stroke = 0.5) +
+  scale_fill_viridis_c(option = "rocket", direction = -1, name = "Perte\nde\nperformance\néconomique\n(points d'indice)") +
+  scale_x_continuous(breaks = seq(1995, 2025, 5), expand = c(0, 0)) +
+  labs(x = NULL, y = NULL,
+       caption = "● : année avec SPI < -1 (sécheresse modérée à sévère)") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid = element_blank(),
+        axis.text.y = element_text(face = "bold"),
+        plot.caption = element_text(hjust = 0, colour = "grey30"))
+g_heat
+
+#graphique: Haltères (dumbbell) pour les pertes cumulées par pays
+library(tidyr)
+
+cum <- resume %>%
+  mutate(sc = ifelse(grepl("^A", scenario), "A", "B")) %>%
+  select(sc, iso, perte_cumulee) %>%
+  pivot_wider(names_from = sc, values_from = perte_cumulee) %>%
+  mutate(iso = reorder(iso, A))
+
+g_dumb <- ggplot(cum, aes(y = iso)) +
+  geom_segment(aes(x = B, xend = A, yend = iso), colour = "grey75", linewidth = 1.5) +
+  geom_point(aes(x = A, colour = "A : seuil 0"),  size = 4) +
+  geom_point(aes(x = B, colour = "B : seuil -1"), size = 4) +
+  scale_colour_manual(values = c("A : seuil 0" = "#e4572e", "B : seuil -1" = "#17657d")) +
+  labs(x = "Perte de performance économique cumulée sur 1994-2024 (points d'indice)", y = NULL, colour = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank(), legend.position = "top")
+g_dumb
+
+g_dumb <- ggplot(cum, aes(y = iso)) +
+  geom_segment(aes(x = B, xend = A, yend = iso), colour = "grey75", linewidth = 1.5) +
+  geom_point(aes(x = A, colour = "A: threshold 0"), size = 4) +
+  geom_point(aes(x = B, colour = "B: threshold -1"), size = 4) +
+  scale_colour_manual(values = c("A: threshold 0" = "#e4572e", "B: threshold -1" = "#17657d")) +
+  labs(x = "Cumulative lost economic performance over 1994-2024 (% points)", y = NULL, colour = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank(), legend.position = "top")
+g_dumb
+
+#part de SPI commune
+library(fixest); library(dplyr)
+
+#EFFETS fixes pays seulement
+m_noyear <- feols(epi_index ~ spi + spi_l1 | iso, data = epi, cluster = ~iso) 
+etable(m_epi_index_spi, m_noyear) #noyear non significatif 
+
+# ======> donc modèle fragile pour epi et spi passons à ext balance
+
+
